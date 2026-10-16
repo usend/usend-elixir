@@ -45,4 +45,54 @@ defmodule UsendTest do
     assert {:error, %Usend.Error{name: "invalid_webhook"}} = Usend.Webhook.verify(body, stale, @secret)
     assert {:error, %Usend.Error{name: "invalid_webhook"}} = Usend.Webhook.verify(body, %{}, @secret)
   end
+
+  # A one-connection-at-a-time HTTP stand-in for the API; nothing leaves the machine.
+  defp mock_api(parent) do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(listen)
+
+    spawn_link(fn ->
+      loop = fn loop ->
+        {:ok, sock} = :gen_tcp.accept(listen)
+        {:ok, data} = :gen_tcp.recv(sock, 0, 2000)
+        send(parent, {:request, data})
+        body = ~s({"id":"l1"})
+
+        :gen_tcp.send(
+          sock,
+          "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <> body
+        )
+
+        :gen_tcp.close(sock)
+        loop.(loop)
+      end
+
+      loop.(loop)
+    end)
+
+    "http://127.0.0.1:#{port}"
+  end
+
+  test "short links" do
+    client = Usend.new("us_test", base_url: mock_api(self()))
+
+    assert {:ok, %{"id" => "l1"}} = Usend.create_short_link(client, %{target_url: "https://example.com", code: "abc"})
+    assert_receive {:request, req}
+    assert req =~ "POST /short-links HTTP/1.1"
+    assert String.downcase(req) =~ "authorization: bearer us_test"
+    assert req =~ ~s("code":"abc")
+
+    assert {:ok, _} = Usend.short_link_stats(client, "l 1", %{days: 7})
+    assert_receive {:request, req}
+    assert req =~ "GET /short-links/l%201/stats?days=7 HTTP/1.1"
+
+    assert {:ok, _} = Usend.update_short_link(client, "l1", %{disabled: true, expires_at: nil})
+    assert_receive {:request, req}
+    assert req =~ "PATCH /short-links/l1 HTTP/1.1"
+    assert req =~ ~s("expires_at":null)
+
+    assert {:ok, _} = Usend.delete_short_link(client, "l1")
+    assert_receive {:request, req}
+    assert req =~ "DELETE /short-links/l1 HTTP/1.1"
+  end
 end

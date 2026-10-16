@@ -22,7 +22,7 @@ defmodule Usend do
       `list_email_attachments/2`, `get_email_attachment/3`, `send_batch/3`
     * received (inbound) emails: `list_received/2`, `get_received/2`
     * `create_*`, `list_*`, `get_*`, `update_*`, `delete_*` for `template`, `domain`, `contact`, `topic`,
-      `broadcast`, `webhook`; `create_*`, `list_*`, `delete_*` for `api_key`, `suppression`;
+      `short_link` (plus `short_link_stats/3`), `broadcast`, `webhook`; `create_*`, `list_*`, `delete_*` for `api_key`, `suppression`;
       `create_segment`, `list_segments`, `get_segment`, `delete_segment`
     * `publish_template/2`, `duplicate_template/2`, `verify_domain/2`, `auto_configure_domain/3`,
       `send_broadcast/3`, `test_broadcast/3`, `list_webhook_deliveries/3`, `replay_webhook_delivery/3`
@@ -37,7 +37,7 @@ defmodule Usend do
 
   alias Usend.HTTP
 
-  @version "1.0.0"
+  @version "1.3.0"
   @default_base_url "https://api.usend.et"
 
   defstruct [:api_key, base_url: @default_base_url, max_retries: 2, timeout: 30_000]
@@ -60,7 +60,7 @@ defmodule Usend do
 
     if is_nil(key) or key == "" do
       raise Usend.Error,
-        message: ~s(Missing API key. Pass it to Usend.new("us_...") or set USEND_API_KEY.),
+        message: "Missing API key. Pass it to Usend.new(\"us_...\") or set USEND_API_KEY.",
         name: "missing_api_key"
     end
 
@@ -109,7 +109,7 @@ defmodule Usend do
 
     if is_nil(key) or key == "" do
       raise Usend.Error,
-        message: ~s(Missing API key. Pass it to Usend.smtp_config("us_...") or set USEND_API_KEY.),
+        message: "Missing API key. Pass it to Usend.smtp_config(\"us_...\") or set USEND_API_KEY.",
         name: "missing_api_key"
     end
 
@@ -188,6 +188,7 @@ defmodule Usend do
     {"domain", "domains", "/domains", [:create, :list, :get, :update, :delete]},
     {"contact", "contacts", "/contacts", [:create, :list, :get, :update, :delete]},
     {"topic", "topics", "/topics", [:create, :list, :get, :update, :delete]},
+    {"short_link", "short_links", "/short-links", [:create, :list, :get, :update, :delete]},
     {"broadcast", "broadcasts", "/broadcasts", [:create, :list, :get, :update, :delete]},
     {"webhook", "webhooks", "/webhooks", [:create, :list, :get, :update, :delete]},
     {"api_key", "api_keys", "/api-keys", [:create, :list, :delete]},
@@ -226,6 +227,16 @@ defmodule Usend do
         do: HTTP.request(client, :delete, unquote(path) <> "/" <> enc(id))
     end
   end
+
+  # ---- short links ----
+
+  @doc """
+  Click statistics of a short link for the last `days` days (1 to 365, default 30):
+  `Usend.short_link_stats(client, id, %{days: 7})`.
+  """
+  @spec short_link_stats(t(), String.t(), map() | keyword()) :: result()
+  def short_link_stats(client, id, query \\ %{}),
+    do: HTTP.request(client, :get, "/short-links/#{enc(id)}/stats" <> qs(query))
 
   # ---- templates ----
 
